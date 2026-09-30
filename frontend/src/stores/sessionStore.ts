@@ -8,6 +8,7 @@ import { useCueStore } from '@/stores/cueStore'
 import { useFixtureStore } from '@/stores/fixtureStore'
 import { useLevelStore } from '@/stores/levelStore'
 import { useSheetStore } from '@/stores/sheetStore'
+import { useReconStore } from '@/stores/reconStore'
 
 /** 场次统计：Cue 数量 / 过渡总时长 / 灯位通道数量 */
 function emptyStat(): SessionStat {
@@ -99,6 +100,7 @@ export const useSessionStore = defineStore('session', () => {
     const fixtureStore = useFixtureStore()
     const levelStore = useLevelStore()
     const sheetStore = useSheetStore()
+    const reconStore = useReconStore()
 
     const cueIds = cueStore.cuesOfSession(id).map((cue) => cue.id)
     await db.sessions.delete(id)
@@ -107,6 +109,7 @@ export const useSessionStore = defineStore('session', () => {
     await cueStore.removeBySession(id)
     await fixtureStore.removeBySession(id)
     await sheetStore.removeBySession(id)
+    await reconStore.removeBySession(id)
     await renumber()
     if (currentSessionId.value === id) {
       currentSessionId.value = sortedSessions.value.length > 0 ? sortedSessions.value[0].id : null

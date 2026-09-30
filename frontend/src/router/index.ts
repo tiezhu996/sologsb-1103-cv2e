@@ -36,6 +36,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '排演表生成与导出' }
   },
   {
+    path: '/reconciliation',
+    name: 'reconciliation',
+    component: () => import('@/pages/Reconciliation.vue'),
+    meta: { title: '控台日志对账' }
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/sessions'
   }

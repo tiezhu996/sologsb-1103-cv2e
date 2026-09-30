@@ -22,6 +22,14 @@ export function buildSheetFilename(sheetNo: string, generatedAt: string): string
   return `排演表_${safeNo}_${stamp}.txt`
 }
 
+/** 偏差秒格式化为 `+12.5s` / `-3s` */
+export function formatSignedSeconds(sec: number | null): string {
+  if (sec === null) return '—'
+  const rounded = Math.round(sec * 10) / 10
+  if (rounded === 0) return '0s'
+  return `${rounded > 0 ? '+' : ''}${rounded}s`
+}
+
 /** 复制文本到剪贴板，失败时回退到 execCommand */
 export async function copyText(text: string): Promise<boolean> {
   try {
