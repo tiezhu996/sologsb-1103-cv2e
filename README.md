@@ -29,7 +29,7 @@ docker compose up -d --build    # 改动代码后重新构建
 | 语言 | TypeScript（`strict`，无 `any`） | `npm run build` 内含 `vue-tsc --noEmit` 类型检查 |
 | UI 组件库 | Naive UI（暗色剧场主题） | 按需引入组件，无全局注册 |
 | 构建工具 | Vite 6 | 路由级代码分割 + 依赖单独 vendor 分块 |
-| 状态管理 | Pinia | 5 个 store，页面只读 store |
+| 状态管理 | Pinia | 6 个 store，页面只读 store |
 | 路由 | Vue Router 4（history 模式） | nginx `try_files` 做 SPA 回退 |
 | 本地存储 | IndexedDB（Dexie 4 封装） | 含数据结构版本号与升级迁移逻辑 |
 | 部署 | 多阶段 Dockerfile（node:20-alpine + nginx:alpine） | 构建期类型检查零错误 |
@@ -43,8 +43,10 @@ docker compose up -d --build    # 改动代码后重新构建
 | `/sessions/:id/cues` | Cue 编排时间轴 | 插入 / 复制 / 删除 Cue、拖拽调整先后、沿袭上一条参数、批量偏移过渡时间 | Cue、CueLevel |
 | `/cues/:id/levels` | 通道电平编辑 | 逐通道设定亮度与色温、色温漂移检查、一键对齐基准色温 | CueLevel、Fixture |
 | `/sheets` | 排演表生成与导出 | 勾选 Cue 组表、本地留存历史、预览 / 复制 / 下载纯文本 | RehearsalSheet、Cue |
+| `/reconcile` | 灯控日志对账 | 分批导入控台日志（断点续传）、按编号 / 提示语 / 触发顺序配对、候选人工裁决 | ConsoleLog、ConsoleLogEntry、ReconcileReport |
+| `/reconcile/:id` | 日志对账明细 | 计划时刻 / 实际触发 / 偏差对照、未对上的 Cue 与日志分栏、原始记录分批加载 | ConsoleLogEntry、ReconcileReport |
 
-核心动作闭环：**建场次 → 配灯位通道 → 插入 Cue → 设定过渡与通道电平 → 导出排演表**。
+核心动作闭环：**建场次 → 配灯位通道 → 插入 Cue → 设定过渡与通道电平 → 导出排演表 → 演出后导入控台日志对账**。
 
 ## 四、本地开发
 
@@ -75,11 +77,12 @@ sologsb-1103/
     └── src/
         ├── main.ts                 # 启动时先把本地数据载入 Pinia，再挂载视图
         ├── App.vue                 # 暗色主题外壳 + 侧边导航 + Message/Dialog Provider
-        ├── types/                  # 5 个数据模型，一模型一文件
+        ├── types/                  # 数据模型，一模型一文件
         │   ├── session.ts  fixture.ts  cue.ts  level.ts  sheet.ts
+        │   ├── log.ts（灯控日志 / 触发条目 / 导入进度）  reconcile.ts（配对 / 候选 / 报告）
         ├── stores/                 # Pinia：跨页状态唯一来源
         │   ├── sessionStore.ts  cueStore.ts  fixtureStore.ts
-        │   ├── levelStore.ts    sheetStore.ts
+        │   ├── levelStore.ts    sheetStore.ts logStore.ts
         ├── components/common/      # 共享组件
         │   ├── FadeBar.vue      # 渐变条：渐亮/保持/渐暗按比例绘制
         │   ├── ChannelChip.vue  # 通道标签：通道号 + 灯位色块 + 亮度百分比
@@ -91,22 +94,27 @@ sologsb-1103/
         ├── pages/
         │   ├── SessionList.vue  FixtureBoard.vue  CueTimeline.vue
         │   ├── LevelEditor.vue  SheetList.vue
+        │   └── ReconcileList.vue  ReconcileDetail.vue
         ├── router/index.ts
         └── utils/
-            ├── fade.ts     # 过渡时间格式化、色温一致性判定、排演表纯文本拼装
-            ├── db.ts       # IndexedDB（Dexie）封装：版本号与升级迁移
-            ├── export.ts   # 文本下载、文件名生成、剪贴板复制
-            ├── cueOrder.ts # Cue 编号解析、比较、排序与位次计算
-            ├── patch.ts    # 通道冲突 / 灯位负载纯函数
-            └── id.ts       # 本地主键生成
+            ├── fade.ts       # 过渡时间格式化、色温一致性判定、排演表纯文本拼装
+            ├── db.ts         # IndexedDB（Dexie）封装：版本号与升级迁移
+            ├── export.ts     # 文本下载、文件名生成、剪贴板复制
+            ├── cueOrder.ts   # Cue 编号解析、比较、排序与位次计算
+            ├── logParse.ts   # 灯控日志逐行解析：时间戳 / Cue 编号 / 动作词 / 系统信息
+            ├── reconcile.ts  # 对账引擎：编号+提示语+触发顺序评分、贪心唯一配对、偏差计算
+            ├── patch.ts      # 通道冲突 / 灯位负载纯函数
+            └── id.ts         # 本地主键生成
 ```
 
 ## 六、数据存储说明
 
 - 所有数据存放在**浏览器本地 IndexedDB**，数据库名 `gbcuesheet`，由 `src/utils/db.ts` 用 Dexie 统一封装；页面不直接读写数据库，只调用 store 的 action。
-- 共 6 张表：`sessions`、`fixtures`、`cues`、`levels`、`sheets`、`appMeta`（元数据）。
-- **数据结构版本号**：`DB_VERSION = 2`。`version(1)` 定义初始结构；`version(2)` 新增 `updatedAt` / `sheetNo` 索引、`appMeta` 表，并在 `upgrade()` 中迁移既有数据（补齐 `updatedAt`、`orderIndex`、`holdSec`，规范化遗留排演表编号与条目快照）。
-- 删除场次会级联清理其灯位通道、Cue、通道电平与排演表；删除通道会清理对应的电平记录。
+- 共 9 张表：`sessions`、`fixtures`、`cues`、`levels`、`sheets`、`appMeta`（元数据）、`consoleLogs`（导入与断点）、`logEntries`（触发条目）、`reconcileReports`（对账结果）。
+- **数据结构版本号**：`DB_VERSION = 3`。`version(1)` 定义初始结构；`version(2)` 新增 `updatedAt` / `sheetNo` 索引、`appMeta` 表并迁移既有数据；`version(3)` 新增灯控日志三表（日志记录、触发条目、对账报告）。
+- 删除场次会级联清理其灯位通道、Cue、通道电平、排演表、灯控日志与对账报告；删除日志会级联其触发条目与对账报告。
+- **日志导入断点续传**：读取按 256KB 分块，断点只推进到「已完整解析的换行符边界」；触发条目主键为 `日志id:L源行号`，续传重读旧行是幂等覆盖，缺段、重复时间戳或中途失败都保留进度，可从断点继续（同会话免重选文件，跨会话重新选择原始文件即可）。
+- **日志对账**：综合 Cue 编号、提示语二元组相似度、触发顺序位次与计划时刻偏差打分，贪心唯一配对；高置信自动确认，把握不足的进入候选清单，可在两栏间人工确认 / 撤销。汇总与原始记录均分批读取、分批让出主线程，长日志不冻结页面。
 - **容器无状态**：不使用数据库服务、不挂载命名卷；换浏览器或清理站点数据即等于清空。排演表以生成时刻的快照留档，之后修改 Cue 不影响历史记录。
 
 ## 七、容器化实现要点

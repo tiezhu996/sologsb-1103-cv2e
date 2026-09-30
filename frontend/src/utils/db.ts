@@ -4,11 +4,13 @@ import type { Fixture } from '@/types/fixture'
 import type { CueLevel } from '@/types/level'
 import type { RehearsalSheet } from '@/types/sheet'
 import type { Session } from '@/types/session'
+import type { ConsoleLog, ConsoleLogEntry } from '@/types/log'
+import type { ReconcileReport } from '@/types/reconcile'
 
 /** IndexedDB 数据库名 */
 export const DB_NAME = 'gbcuesheet'
 /** 当前数据结构版本号，与 db.version() 对应 */
-export const DB_VERSION = 2
+export const DB_VERSION = 3
 
 /** 单键值元数据表，记录结构版本等本地状态 */
 export interface AppMetaRecord {
@@ -22,6 +24,7 @@ export interface AppMetaRecord {
  * - v1：场次 / 灯位通道 / Cue / 通道电平 / 排演表 五张表
  * - v2：场次补充 updatedAt 索引、排演表补充 sheetNo 索引与条目快照、新增 appMeta 元数据表，
  *       并对既有数据执行升级迁移（补齐字段、规范化遗留编号）
+ * - v3：新增灯控台日志（含断点偏移）、日志条目与对账报告三张表，支撑导入续传与分批汇总
  */
 export class CueSheetDatabase extends Dexie {
   sessions!: Table<Session, string>
@@ -30,6 +33,9 @@ export class CueSheetDatabase extends Dexie {
   levels!: Table<CueLevel, string>
   sheets!: Table<RehearsalSheet, string>
   appMeta!: Table<AppMetaRecord, string>
+  consoleLogs!: Table<ConsoleLog, string>
+  logEntries!: Table<ConsoleLogEntry, string>
+  reconcileReports!: Table<ReconcileReport, string>
 
   constructor() {
     super(DB_NAME)
@@ -76,6 +82,18 @@ export class CueSheetDatabase extends Dexie {
             if (!Array.isArray(sheet.includedCueIds)) sheet.includedCueIds = []
           })
       })
+
+    this.version(3).stores({
+      sessions: 'id, order, createdAt, updatedAt',
+      fixtures: 'id, sessionId, channel, [sessionId+channel]',
+      cues: 'id, sessionId, cueNo, orderIndex, [sessionId+orderIndex]',
+      levels: 'id, cueId, fixtureId, [cueId+fixtureId]',
+      sheets: 'id, sessionId, sheetNo, generatedAt',
+      appMeta: 'key',
+      consoleLogs: 'id, sessionId, status, importedAt',
+      logEntries: 'id, logId, sessionId, lineNo, cueNo, timeOfDayMs, [logId+lineNo]',
+      reconcileReports: 'id, sessionId, logId, createdAt'
+    })
   }
 }
 
@@ -95,14 +113,21 @@ export async function writeMeta(key: string, value: string): Promise<void> {
 
 /** 清空全部本地数据（含结构版本回落重开） */
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.sessions, db.fixtures, db.cues, db.levels, db.sheets, db.appMeta], async () => {
-    await Promise.all([
-      db.sessions.clear(),
-      db.fixtures.clear(),
-      db.cues.clear(),
-      db.levels.clear(),
-      db.sheets.clear(),
-      db.appMeta.clear()
-    ])
-  })
+  await db.transaction(
+    'rw',
+    [db.sessions, db.fixtures, db.cues, db.levels, db.sheets, db.appMeta, db.consoleLogs, db.logEntries, db.reconcileReports],
+    async () => {
+      await Promise.all([
+        db.sessions.clear(),
+        db.fixtures.clear(),
+        db.cues.clear(),
+        db.levels.clear(),
+        db.sheets.clear(),
+        db.appMeta.clear(),
+        db.consoleLogs.clear(),
+        db.logEntries.clear(),
+        db.reconcileReports.clear()
+      ])
+    }
+  )
 }

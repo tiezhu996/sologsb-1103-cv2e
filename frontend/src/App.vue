@@ -70,6 +70,10 @@ const menuOptions = computed<MenuOption[]>(() => {
       key: 'sheets'
     },
     {
+      label: () => h(RouterLink, { to: '/reconcile' }, { default: () => '灯控日志对账' }),
+      key: 'reconcile'
+    },
+    {
       type: 'group',
       label: '当前场次',
       key: 'current-group',
@@ -86,6 +90,7 @@ const menuOptions = computed<MenuOption[]>(() => {
 
 const activeKey = computed(() => {
   const path = route.path
+  if (path.startsWith('/reconcile')) return 'reconcile'
   if (path.startsWith('/sheets')) return 'sheets'
   if (path.includes('/fixtures')) return 'fixtures'
   if (path.includes('/cues') || path.includes('/levels')) return 'cues'

@@ -36,6 +36,18 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '排演表生成与导出' }
   },
   {
+    path: '/reconcile',
+    name: 'reconcile-list',
+    component: () => import('@/pages/ReconcileList.vue'),
+    meta: { title: '灯控日志对账' }
+  },
+  {
+    path: '/reconcile/:id',
+    name: 'reconcile-detail',
+    component: () => import('@/pages/ReconcileDetail.vue'),
+    meta: { title: '日志对账明细' }
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/sessions'
   }
